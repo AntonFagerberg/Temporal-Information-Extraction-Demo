@@ -1,0 +1,25 @@
+@(form: Form[(String, String)], result: Option[String])
+@import org.joda.time.LocalDate
+
+@main("TempEval-2 Demo") {
+    @result.map { res =>
+        <div class="well main">
+            <h1>Results</h1>
+            @Html(res)
+        </div>
+    }
+
+
+    @helper.form(routes.Application.send, 'role -> "form", 'class -> "well main") {
+        <h1>Temporal Information Extraction</h1>
+        <div class="form-group @if(form("date").error.isDefined){has-error}">
+            <label for="date">Publication date</label>
+            <input name="date" type="text" class="form-control" id="date" placeholder="Publication date" value="@form("date").value.getOrElse(LocalDate.now)" autocomplete="off">
+        </div>
+        <div class="form-group @if(form("data").error.isDefined){has-error}">
+            <label for="inputData">Text content</label>
+            <textarea name="data" id="inputData" class="form-control" rows="15">@form("data").value</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Submit</button>
+    }
+}
