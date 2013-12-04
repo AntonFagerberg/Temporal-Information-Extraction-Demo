@@ -28,19 +28,21 @@ object TempEval2 {
   val numberWords = List("[Zz]ero", "[Oo]ne", "[Tt]wo", "[Tt]hree", "[Ff]our", "[Ff]ive", "[Ss]ix", "[Ss]even", "[Ee]ight", "[Nn]ine", "[Tt]en", "[Ee]leven", "[Tt]welve", "[Tt]hirteen", "[Ff]ourteen", "[Ff]ifteen", "[Ss]ixteen", "[Ss]eventeen", "[Ee]ighteen", "[Nn]ineteen", "[Tt]wenty", "[Tt]wenty [Oo]ne", "[Tt]wenty [Tt]wo", "[Tt]wenty [Tt]hree", "[Tt]wenty [Ff]our")
   val monthWords = List("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
   val dayNames = List("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+  val monthWordsShort = List("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept?", "Oct", "Nov", "Dec")
+  
   val matches =
     List(
       /*
        * JANUARY
        */
-      (
-        monthWords.mkString("^(", "|", ")( ,)?( )?[1-2]\\d{3}$").r,
+      ( // [Perfect] Ex: January 1983
+        monthWords.mkString("^(", "|", ")( ,)?( |-)?[1-2]\\d{3}$").r,
         (value: String, segment: BaseSegmentation) =>
           s"${value.takeRight(4)}-${("0" + (1 + monthWords.indexWhere(_.r.findPrefixOf(value).isDefined))).takeRight(2)}",
         "DATE"
       )
       ,
-      (
+      ( // [Perfect] Ex: Last January
         monthWords.mkString("^[Ll]ast (", "|", ")$").r,
         (value: String, segment: BaseSegmentation) => {
           val month = 1 + monthWords.indexWhere(_.r.findPrefixOf(value.drop(5)).isDefined)
@@ -53,21 +55,21 @@ object TempEval2 {
         "DATE"
       )
       ,
-      (
+      ( // [Perfect -1 val bug] In January last year
         monthWords.mkString("^[Ii]n (", "|", ") last year$").r,
         (value: String, segment: BaseSegmentation) =>
           s"${publicationDates(segment.source).localDate.minusYears(1).toString("YYYY")}-${("0" + (1 + monthWords.indexWhere(_.r.findPrefixOf(value.drop(3)).isDefined))).takeRight(2)}",
         "DATE"
       )
       ,
-      (
+      ( // [Perfect] January this year
         monthWords.mkString("^(", "|", ") this year$").r,
         (value: String, segment: BaseSegmentation) =>
           s"${publicationDates(segment.source).year}-${("0" + (1 + monthWords.indexWhere(_.r.findPrefixOf(value).isDefined))).takeRight(2)}",
         "DATE"
       )
       ,
-      (
+      ( // [Problem | FP] January 1, 1984
         // Gives "January 1 1984" while gold standard is "January , 1984"
         monthWords.mkString("^(", "|", ") \\d{1,2} (, )?[1-2]\\d{3}$").r,
         (value: String, segment: BaseSegmentation) =>
@@ -75,17 +77,45 @@ object TempEval2 {
         "DATE"
       )
       ,
-      (
+      ( // [Perfect | -1 attr val can't fix] January 12
         monthWords.mkString("^(", "|", ") \\d{1,2}$").r,
         (value: String, segment: BaseSegmentation) =>
           s"${publicationDates(segment.source).year}-${("0" + (1 + monthWords.indexWhere(_.r.findPrefixOf(value).isDefined))).takeRight(2)}-${("0" + value.filter(_.isDigit)).takeRight(2)}",
         "DATE"
       )
       ,
-      (
-        monthWords.mkString("^(", "|", ")$").r,
+      ( // [No test case] Jan 12 1998
+        monthWordsShort.mkString("^(", "|", ") ?\\.? ?\\d{1,2} (, )?[1-2]\\d{3}$").r,
         (value: String, segment: BaseSegmentation) =>
-          s"${publicationDates(segment.source).year}-${("0" + (1 + monthWords.indexWhere(_.r.findPrefixOf(value).isDefined))).takeRight(2)}"
+          s"${value.takeRight(4)}-${("0" + (1 + monthWordsShort.indexWhere(_.r.findPrefixOf(value).isDefined))).takeRight(2)}-${("0" + value.dropRight(4).filter(_.isDigit)).takeRight(2)}",
+        "DATE"
+      )
+      ,
+      ( // [No test case] Jan 12 last year
+        monthWordsShort.mkString("^(", "|", ") ?\\.? ?\\d{1,2} last year$").r,
+        (value: String, segment: BaseSegmentation) =>
+          s"${publicationDates(segment.source).localDate.minusYears(1).getYear}-${("0" + (1 + monthWordsShort.indexWhere(_.r.findPrefixOf(value).isDefined))).takeRight(2)}-${("0" + value.filter(_.isDigit)).takeRight(2)}",
+        "DATE"
+      )
+      ,
+      ( // [Good] Jan 12
+        monthWordsShort.mkString("^(", "|", ") ?\\.? ?\\d{1,2}$").r,
+        (value: String, segment: BaseSegmentation) =>
+          s"${publicationDates(segment.source).year}-${("0" + (1 + monthWordsShort.indexWhere(_.r.findPrefixOf(value).isDefined))).takeRight(2)}-${("0" + value.filter(_.isDigit)).takeRight(2)}",
+        "DATE"
+      )
+      ,
+      ( // [OK] Jaunary
+        monthWords.mkString("^(", "|", ")$").r,
+        (value: String, segment: BaseSegmentation) => {
+          val monthNumber = 1 + monthWords.indexWhere(_.r.findPrefixOf(value).isDefined)
+          val publicationMonthNumber = publicationDates(segment.source).localDate.getMonthOfYear
+          val subtractYears =
+            if (publicationMonthNumber < monthNumber) 1
+            else 0
+
+          s"${publicationDates(segment.source).localDate.minusYears(subtractYears).getYear}-${("0" + monthNumber).takeRight(2)}"
+        }
         ,
         "DATE"
       )
@@ -95,6 +125,7 @@ object TempEval2 {
        * YEAR
        */
       (
+        //
         numberWords.mkString("^([Aa]bout|[Aa]lmost|[Pp]robably|[Nn]early|[Rr]ougly) (", "|", ") [Yy]ears? ago$").r,
         (value: String, segment: BaseSegmentation) => {
           val monthName = value.split(" ")(1)
@@ -105,6 +136,7 @@ object TempEval2 {
         )
       ,
       (
+        //
         numberWords.mkString("^(", "|", ") [Yy]ears? ago$").r,
         (value: String, segment: BaseSegmentation) => {
           publicationDates(segment.source)
@@ -117,7 +149,8 @@ object TempEval2 {
       )
       ,
       (
-        numberWords.mkString("^(", "|", ") [Yy]ears?$").r,
+        // [Perfect] Two year
+        numberWords.mkString("^(", "|", ")(-| )[Yy]ears?$").r,
         (value: String, segment: BaseSegmentation) => {
           val index = numberWords.indexWhere(_.r.findPrefixOf(value).isDefined)
           s"P${index}Y"
@@ -125,45 +158,82 @@ object TempEval2 {
         "DURATION"
       )
       ,
+      (
+        // [Perfect] 2 years
+        "^\\d+(-| )[Yy]ears?$".r,
+        (value: String, segment: BaseSegmentation) => {
+          s"P${value.filter(_.isDigit)}Y"
+        },
+        "DURATION"
+      )
+      ,
+      (
+        // [Good] This year.
+        "^[Tt]his year$".r,
+        (value: String, segment: BaseSegmentation) => {
+          publicationDates(segment.source).year
+        },
+        "DATE"
+      )
+      ,
+      (
+        // [Good] Last year.
+        "^[Ll]ast year$".r,
+        (value: String, segment: BaseSegmentation) => {
+          publicationDates(segment.source).localDate.minusYears(1).getYear.toString
+        },
+        "DATE"
+      )
+      ,
+      (
+        // [OK | Problematic output] A year ago.
+        "^[Aa] year ago$".r,
+        (value: String, segment: BaseSegmentation) => {
+          val quarter = 1 + ((publicationDates(segment.source).localDate.getMonthOfYear - 1) / 4)
+          publicationDates(segment.source).localDate.minusYears(1).toString(s"YYYY-'Q$quarter'")
+        },
+        "DATE"
+      )
+      ,
 
       /*
        * MONTH
        */
-      (
+      ( // [Perfect] A month ago
         "^[Aa] month ago$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.minusMonths(1).toString("YYYY-MM"),
         "DATE"
       )
       ,
-      (
+      ( // [OK | No test case] A month from now
         "^[Aa] month from now$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.plusMonths(1).toString("YYYY-MM"),
         "DURATION"
       )
       ,
-      (
+      ( // [OK] A month
         "^[Aa] month$".r,
         (value: String, segment: BaseSegmentation) => "P1M",
         "DURATION"
       )
       ,
-      (
+      ( // [OK] The following / Next Month
         "^(([Tt]he )?[Ff]ollowing|[Nn]ext) month$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.plusMonths(1).toString("YYYY-MM"),
         "DATE"
       )
       ,
-      (
+      ( // [Perfect] The previous / last month
         "^(([Tt]he )?[Pp]revious|[Ll]ast) month$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.minusMonths(1).toString("YYYY-MM"),
         "DATE"
       )
       ,
-      (
+      ( // [Perfect] Two months ago
         numberWords.mkString("^(", "|", ") months? ago$").r,
         (value: String, segment: BaseSegmentation) => {
           val numberIndex = numberWords.indexWhere(_.r.findPrefixOf(value).isDefined)
@@ -172,7 +242,7 @@ object TempEval2 {
         "DATE"
       )
       ,
-      (
+      ( // [OK | No test case] Two months from now.
         numberWords.mkString("^(", "|", ") months? from now").r,
         (value: String, segment: BaseSegmentation) => {
           val numberIndex = numberWords.indexWhere(_.r.findPrefixOf(value).isDefined)
@@ -181,7 +251,7 @@ object TempEval2 {
         "DATE"
       )
       ,
-      (
+      ( // [No test case] 1 months ago
         "^\\d+ months? ago$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.minusMonths(value.filter(_.isDigit).toInt).toString("YYYY-MM")
@@ -189,7 +259,7 @@ object TempEval2 {
         "DATE"
       )
       ,
-      (
+      ( // [No test case] 2 months form now
         "^\\d+ months? from now$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.plusMonths(value.filter(_.isDigit).toInt).toString("YYYY-MM")
@@ -197,14 +267,22 @@ object TempEval2 {
         "DATE"
       )
       ,
-      (
-        numberWords.mkString("^(([Tt]he )?[Pp]ast )?(", "|", ") months?$").r,
+      ( // [Very good | 2 FP] (Past) two months
+        numberWords.mkString("^(([Tt]he )?[Pp]ast )?(", "|", ")( |-)months?$").r,
         (value: String, segment: BaseSegmentation) => {
           val valueParts = value.split(" ")
           val numberIndex = numberWords.indexWhere(_.r.findPrefixOf(valueParts(valueParts.length - 2)).isDefined)
           s"P${numberIndex}M"
         },
         "DURATION"
+      ),
+      (
+        // [Good] This month.
+        "^[Tt]his month$".r,
+        (value: String, segment: BaseSegmentation) => {
+          publicationDates(segment.source).localDate.toString("YYYY-MM")
+        },
+        "DATE"
       )
       ,
 
@@ -213,6 +291,7 @@ object TempEval2 {
        * WEEK
        */
       (
+        // [Perfect | -1 AV] X weeks ago
         numberWords.mkString("^(", "|", ") [Ww]eeks? ago$").r,
         (value: String, segment: BaseSegmentation) => {
           publicationDates(segment.source)
@@ -223,30 +302,39 @@ object TempEval2 {
         "DATE"
       )
       ,
-      (
+      ( // [OK] A week ago (no test scenario)
         "^[Aa] week ago$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.minusWeeks(1).toString("YYYY-MM-dd"),
         "DATE"
       )
       ,
-      (
+      ( // [Good | -3 AV] This week
         "^[Tt]his week$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.toString("YYYY-'W'ww"),
         "DATE"
       )
       ,
-      (
+      ( //
         "^[Nn]ext week$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.plusWeeks(1).toString("YYYY-'W'ww"),
         "DATE"
       )
       ,
-      (
+      ( // [???] A week
         "^([Aa] )?week$".r,
         (value: String, segment: BaseSegmentation) => "P1W",
+        "DURATION"
+      )
+      ,
+      (
+        // [Perfect] Two weeks
+        numberWords.mkString("^(", "|", ") [Ww]eeks?$").r,
+        (value: String, segment: BaseSegmentation) => {
+          s"P${numberWords.indexWhere(_.r.findPrefixOf(value).isDefined)}W"
+        },
         "DURATION"
       )
       ,
@@ -254,35 +342,42 @@ object TempEval2 {
       /*
        * DAY
        */
-      (
+      ( // [Perfect | -1 AV] Yesterday / A day ago
         "^([Yy]esterday|[Aa] day ago)$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.minusDays(1).toString,
         "DATE"
       )
       ,
-      (
+      ( // [GOOD | -3 AV, 2 FP] Today
         "^[Tt]oday$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).toString,
         "DATE"
       )
       ,
-      (
+      ( // [Perfect] Tomorrow
+        "^[Tt]omorrow$".r,
+        (value: String, segment: BaseSegmentation) =>
+          publicationDates(segment.source).localDate.plusDays(1).toString,
+        "DATE"
+      )
+      ,
+      ( // [Perfect] 2 days ago
         "^\\d+ days? ago$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.minusDays(value.filter(_.isDigit).toInt).toString,
         "DATE"
       )
       ,
-      (
+      ( // [No test case] 2 from now
         "^\\d+ days? from now$".r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source).localDate.plusDays(value.filter(_.isDigit).toInt).toString,
         "DATE"
       )
       ,
-      (
+      ( // [No test case] two days ago
         numberWords.mkString("^(", "|", ") days? ago$").r,
         (value: String, segment: BaseSegmentation) =>
           publicationDates(segment.source)
@@ -293,15 +388,21 @@ object TempEval2 {
         "DATE"
       )
       ,
-      (
-        numberWords.mkString("^(", "|", ") days?$").r,
+      ( // [OK] day
+        "^day$".r,
+        (value: String, segment: BaseSegmentation) => "P1D",
+        "DATE"
+      )
+      ,
+      ( // [OK | 7 FP]
+        numberWords.mkString("^(", "|", ")(-| )days?$").r,
         (value: String, segment: BaseSegmentation) =>
           s"P${numberWords.indexWhere(_.r.findPrefixOf(value).isDefined)}D"
         ,
         "DURATION"
       )
       ,
-      (
+      ( // [Perfect] The last 24 hours
         "^(([Tt]he )?[Ll]ast )?(twenty ?four|24) hours".r,
         (value: String, segment: BaseSegmentation) => s"P1D",
         "DURATION"
@@ -312,12 +413,13 @@ object TempEval2 {
        * NUMERICS
        */
       (
+        // [???] 1987-03
         "^([1-2]\\d\\d\\d)(-| )(\\d\\d)$".r,
         (value: String, segment: BaseSegmentation) => value,
         "DATE"
       )
       ,
-      (
+      ( // [OK | -1 AV, 3 FP] 1998
         "^([1-2]\\d{3})$".r,
         (value: String, segment: BaseSegmentation) => value,
         "DATE"
@@ -388,6 +490,15 @@ object TempEval2 {
         "DURATION"
       )
       ,
+      ( // [No test case] Two hours
+        numberWords.mkString("^(", "|", ")( |-)hours?$").r,
+        (value: String, segment: BaseSegmentation) => {
+          val numberIndex = numberWords.indexWhere(_.r.findPrefixOf(value).isDefined)
+          s"PT${numberIndex}H"
+        },
+        "DURATION"
+      )
+      ,
       ( // [Perfect] (Nearly) an hour
         "^([Nn]early )?[Aa]n hour$".r,
         (value: String, segment: BaseSegmentation) => "PT1H",
@@ -413,7 +524,7 @@ object TempEval2 {
           publication.localDate.minusDays(addDays).toString
         },
         "DATE"
-        )
+      )
     )
 
   def matchType(word: String, segment: BaseSegmentation): Option[(String, String)] = {
